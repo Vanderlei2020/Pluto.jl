@@ -90,6 +90,7 @@ function testee(expr, expected_references, expected_definitions, expected_funcca
         @show expected
         resulted = result
         @show resulted
+        diff_symstates(expected, resulted)
         println()
     end
     return expected == result
@@ -216,4 +217,54 @@ function verify_no_running_processes()
     if length(Distributed.procs()) != 1
         @error "Not all notebook processes were closed during tests!" Distributed.procs()
     end
+end
+
+struct Insertion
+    text::Any
+end
+Base.show(io::IO, d::Insertion) = printstyled(io, repr(d.text); color = :light_green)
+
+struct Deletion
+    text::Any
+end
+Base.show(io::IO, d::Deletion) = printstyled(io, repr(d.text); color = :light_red)
+
+function diff_syms(a, b)
+    deletions = setdiff(a, b)
+    insertions = setdiff(b, a)
+
+    all = collect(a ∪ b)
+    map(all) do sym
+        if sym ∈ insertions
+            Insertion(sym)
+        elseif sym ∈ deletions
+            Deletion(sym)
+        else
+            sym
+        end
+    end
+end
+
+function diff_symstates(s1::SymbolsState, s2::SymbolsState; io = stdout)
+    maybe_unwrap_syms(syms) =
+        map(sym -> sym isa Vector && length(sym) == 1 ? only(sym) : sym, collect(syms))
+
+    println(io, "SymbolState(")
+    for field in fieldnames(SymbolsState)
+        f1 = getproperty(s1, field)
+        f2 = getproperty(s2, field)
+        if fieldtype(SymbolState, field) == Set{Symbol}
+            diffs = diff_syms(f1 |> maybe_unwrap_syms, f1 |> maybe_unwrap_syms)
+            println(io, "    ", field, "=", diffs, ",")
+        else
+            println(
+                io,
+                "    ",
+                field,
+                "=",
+                (f1 == f2 ? (f1,) : (Deletion(f1), Insertion(f2)))...,
+            )
+        end
+    end
+    println(io, ")")
 end
